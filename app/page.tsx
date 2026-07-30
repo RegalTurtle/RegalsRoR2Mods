@@ -376,7 +376,7 @@ export default function Home() {
       mods.filter((mod) => {
         const matchesPack = !activePack || activePack.modIds.includes(mod.id);
         const matchesGroup = !activeGroup || activeGroup.modIds.includes(mod.id);
-        return matchesPack && matchesGroup && !mod.deprecated;
+        return matchesPack && matchesGroup;
       }),
     [activeGroup, activePack, mods],
   );
@@ -1011,6 +1011,7 @@ export default function Home() {
                       {mod.categories.slice(0, 4).map((item) => (
                         <Pill key={item}>{item}</Pill>
                       ))}
+                      {mod.deprecated && <Pill tone="deprecated">Deprecated</Pill>}
                       {(tags[mod.id] ?? []).slice(0, 4).map((item) => (
                         <Pill key={item} tone="tag">
                           #{item}
@@ -1209,6 +1210,7 @@ export default function Home() {
 
               <h3 className="mt-5 font-bold">Tags</h3>
               <div className="mt-2 flex flex-wrap gap-2">
+                {selectedMod.deprecated && <Pill tone="deprecated">Deprecated</Pill>}
                 {(tags[selectedMod.id] ?? []).map((item) => (
                   <button
                     key={item}
@@ -1243,13 +1245,22 @@ export default function Home() {
   );
 }
 
-function Pill({ children, tone = "category" }: { children: React.ReactNode; tone?: "category" | "tag" }) {
+function Pill({
+  children,
+  tone = "category",
+}: {
+  children: React.ReactNode;
+  tone?: "category" | "tag" | "deprecated";
+}) {
+  const toneClass =
+    tone === "deprecated"
+      ? "bg-[#ffe1df] text-[#a62318]"
+      : tone === "tag"
+        ? "bg-[#ffe9d9] text-[#9b4d31]"
+        : "bg-[#e7efe0] text-[#42622f]";
+
   return (
-    <span
-      className={`rounded px-2 py-1 text-xs font-bold ${
-        tone === "tag" ? "bg-[#ffe9d9] text-[#9b4d31]" : "bg-[#e7efe0] text-[#42622f]"
-      }`}
-    >
+    <span className={`rounded px-2 py-1 text-xs font-bold ${toneClass}`}>
       {children}
     </span>
   );
