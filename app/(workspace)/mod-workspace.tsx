@@ -212,6 +212,7 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
   const [hasLoadedPersistentWorkspace, setHasLoadedPersistentWorkspace] = useState(false);
   const centerColumnRef = useRef<HTMLElement>(null);
   const canSavePersistentWorkspace = useRef(false);
+  const lastSavedWorkspace = useRef<string | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -267,6 +268,9 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
         };
 
         if (ignore) return;
+        lastSavedWorkspace.current = workspace.exists !== false
+          ? JSON.stringify({ packs: workspace.packs ?? [], groups: workspace.groups ?? [], tags: workspace.tags ?? {} })
+          : JSON.stringify({ packs: [], groups: [], tags: {} });
         if (workspace.exists !== false && workspace.packs) {
           setPacks(workspace.packs);
         }
@@ -290,6 +294,8 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     if (!hasLoadedPersistentWorkspace || !hasLoadedSavedWorkspace || !canSavePersistentWorkspace.current) return;
+    const snapshot = JSON.stringify({ packs, groups, tags });
+    if (snapshot === lastSavedWorkspace.current) return;
 
     const saveWorkspace = window.setTimeout(async () => {
       setPersistenceState("saving");
@@ -298,10 +304,11 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
         const response = await fetch("/api/workspace", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ packs, groups, tags }),
+          body: snapshot,
         });
 
         if (!response.ok) throw new Error("Mongo workspace save failed");
+        lastSavedWorkspace.current = snapshot;
         setPersistenceState("synced");
       } catch {
         setPersistenceState("error");

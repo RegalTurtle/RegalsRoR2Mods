@@ -6,7 +6,8 @@
     "dev": "next dev --port 3001",
     "build": "next build",
     "start": "next start --port 3001",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:migrate-modpacks": "node --env-file=.env scripts/migrate-modpacks.mjs"
   },
   "dependencies": {
     "mongodb": "^7.5.0",

@@ -1,4 +1,5 @@
 import { getDb, getWorkspaceId } from "@/lib/mongodb";
+import { readModpacks, saveModpacks } from "@/lib/modpacks";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,7 @@ function normalizePack(value: unknown): Pack | undefined {
 
   if (
     typeof candidate.id !== "string" ||
+    candidate.id.length === 0 ||
     typeof candidate.name !== "string" ||
     typeof candidate.color !== "string" ||
     !isStringArray(candidate.modIds)
@@ -101,6 +103,7 @@ function normalizeBody(value: unknown) {
 export async function GET() {
   try {
     const db = await getDb();
+    const packs = await readModpacks(db, getWorkspaceId());
     const workspace = await db
       .collection<Workspace>("workspaces")
       .findOne(
@@ -109,8 +112,8 @@ export async function GET() {
       );
 
     return Response.json({
-      exists: Boolean(workspace),
-      packs: workspace?.packs ?? [],
+      exists: Boolean(workspace) || packs.length > 0,
+      packs,
       groups: workspace?.groups ?? [],
       tags: workspace?.tags ?? {},
       updatedAt: workspace?.updatedAt ?? null,
@@ -125,16 +128,27 @@ export async function GET() {
 
 export async function PUT(request: Request) {
   try {
-    const body = normalizeBody(await request.json());
+    const raw = await request.json();
+    if (!raw || !Array.isArray(raw.packs) || !Array.isArray(raw.groups) ||
+      raw.packs.some((pack: unknown) => !normalizePack(pack)) ||
+      raw.groups.some((group: unknown) => !normalizeGroup(group))) {
+      return Response.json({ error: "Invalid workspace data" }, { status: 400 });
+    }
+    const body = normalizeBody(raw);
+    if (new Set(body.packs.map((pack) => pack.id)).size !== body.packs.length) {
+      return Response.json({ error: "Duplicate modpack IDs" }, { status: 400 });
+    }
     const db = await getDb();
     const updatedAt = new Date();
+
+    await saveModpacks(db, getWorkspaceId(), body.packs);
 
     await db.collection<Workspace>("workspaces").updateOne(
       { workspaceId: getWorkspaceId() },
       {
         $set: {
           workspaceId: getWorkspaceId(),
-          packs: body.packs,
+          modpacksSchemaVersion: 2,
           groups: body.groups,
           tags: body.tags,
           updatedAt,
