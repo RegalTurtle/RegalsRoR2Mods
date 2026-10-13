@@ -6,6 +6,7 @@ export type Pack = {
   color: string;
   notes: string;
   modIds: string[];
+  curatedVersions?: Record<string, string>;
 };
 
 export type ModpackDocument = Pack & {

@@ -1,3 +1,6 @@
+import { canSeePack, canSeeGroup } from "@/lib/access";
+import { readModpacks } from "@/lib/modpacks";
+import { guardApi, getUser } from "@/lib/auth";
 import { getDb, getWorkspaceId } from "@/lib/mongodb";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +34,9 @@ function normalizeBody(value: unknown) {
   };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = await guardApi(request);
+  if (denied) return denied;
   try {
     const db = await getDb();
     const reviews = await db
@@ -39,8 +44,13 @@ export async function GET() {
       .find({ workspaceId: getWorkspaceId() }, { projection: { _id: 0, workspaceId: 0 } })
       .toArray();
 
+    const user = (await getUser())!;
+    const packs = await readModpacks(db, getWorkspaceId());
+    const workspace = await db.collection("workspaces").findOne({ workspaceId: getWorkspaceId() });
+    const accessible = new Set([...packs.filter((pack) => canSeePack(user, pack.id)).flatMap((pack) => pack.modIds), ...(workspace?.groups ?? []).filter((group: { id: string }) => canSeeGroup(user, group.id)).flatMap((group: { modIds: string[] }) => group.modIds)]);
+    const visibleReviews = user.role === "admin" ? reviews : reviews.filter((review) => accessible.has(review.modId));
     return Response.json({
-      reviews: Object.fromEntries(reviews.map((review) => [review.modId, review])),
+      reviews: Object.fromEntries(visibleReviews.map((review) => [review.modId, review])),
     });
   } catch (error) {
     return Response.json(
@@ -51,6 +61,8 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
+  const denied = await guardApi(request);
+  if (denied) return denied;
   try {
     const body = normalizeBody(await request.json());
     if (!body) return Response.json({ error: "Invalid review payload" }, { status: 400 });

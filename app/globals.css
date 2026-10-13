@@ -1,8 +1,26 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f5f1e8;
-  --foreground: #1d2528;
+  color-scheme: dark;
+  --background: #101d30;
+  --foreground: #e5efff;
+  --panel: #192c43;
+  --input: #132338;
+  --surface-deep: #0e1b2d;
+  --surface-hover: #223b58;
+  --selected: #213d60;
+  --border: #344d6b;
+  --secondary: #bed0e6;
+  --muted: #97afca;
+  --accent: #479cf5;
+  --accent-strong: #2874cc;
+  --accent-light: #8ac5ff;
+  --danger: #ffacb2;
+  --danger-bg: #472c40;
+  --tag-bg: #2d3558;
+  --tag-text: #c7c8ff;
+  --category-bg: #223f50;
+  --category-text: #a7d9e9;
 }
 
 @theme inline {
@@ -38,19 +56,24 @@ a {
     transform 160ms ease;
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
-  outline: 3px solid #f5b84b;
+  outline: 3px solid var(--accent-light);
   outline-offset: 2px;
 }
 
 .field-label {
   display: block;
   margin: 1rem 0 0.35rem;
-  color: #465255;
+  color: var(--secondary);
   font-size: 0.78rem;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -60,28 +83,28 @@ textarea:focus-visible {
 .text-field {
   width: 100%;
   min-height: 2.75rem;
-  border: 1px solid #d8c7a3;
+  border: 1px solid var(--border);
   border-radius: 0.45rem;
-  background: #fffdf8;
-  color: #1d2528;
+  background: var(--input);
+  color: var(--foreground);
   padding: 0.65rem 0.75rem;
   outline: none;
 }
 
 .text-field:focus {
-  border-color: #00a6a6;
-  box-shadow: 0 0 0 4px rgba(0, 166, 166, 0.16);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px rgba(71, 156, 245, 0.2);
 }
 
 .checkbox-list {
   display: grid;
   gap: 0.35rem;
-  border: 1px solid #d8c7a3;
+  border: 1px solid var(--border);
   border-top: 0;
   border-radius: 0.45rem;
   border-top-left-radius: 0;
   border-top-right-radius: 0;
-  background: #fffdf8;
+  background: var(--input);
   padding: 0.5rem;
 }
 
@@ -92,19 +115,19 @@ textarea:focus-visible {
   gap: 0.55rem;
   border-radius: 0.35rem;
   padding: 0.25rem 0.35rem;
-  color: #465255;
+  color: var(--secondary);
   font-size: 0.9rem;
   font-weight: 700;
 }
 
 .checkbox-row:hover {
-  background: #f8f3e8;
+  background: var(--surface-hover);
 }
 
 .checkbox-row input {
   width: 1rem;
   height: 1rem;
-  accent-color: #00a6a6;
+  accent-color: var(--accent);
 }
 
 .filter-dropdown summary {
@@ -114,10 +137,10 @@ textarea:focus-visible {
   list-style: none;
   align-items: center;
   justify-content: space-between;
-  border: 1px solid #d8c7a3;
+  border: 1px solid var(--border);
   border-radius: 0.45rem;
-  background: #fffdf8;
-  color: #1d2528;
+  background: var(--input);
+  color: var(--foreground);
   padding: 0.65rem 0.75rem;
   font-weight: 700;
 }
@@ -128,7 +151,7 @@ textarea:focus-visible {
 
 .filter-dropdown summary::after {
   content: "+";
-  color: #687376;
+  color: var(--muted);
   font-weight: 900;
 }
 
@@ -147,17 +170,17 @@ textarea:focus-visible {
   height: 2.5rem;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(29, 37, 40, 0.12);
+  border: 1px solid var(--border);
   border-radius: 0.45rem;
-  background: #fffdf8;
-  color: #172126;
+  background: var(--input);
+  color: var(--foreground);
   font-weight: 900;
   text-decoration: none;
 }
 
 .icon-button:hover {
-  background: #f5b84b;
-  border-color: #d69e2e;
+  background: var(--accent-light);
+  border-color: var(--accent);
 }
 
 .command-button,
@@ -166,9 +189,9 @@ textarea:focus-visible {
   min-height: 2.55rem;
   align-items: center;
   justify-content: center;
-  border: 1px solid #172126;
+  border: 1px solid var(--surface-deep);
   border-radius: 0.45rem;
-  background: #172126;
+  background: var(--surface-deep);
   color: white;
   font-weight: 900;
 }
@@ -176,8 +199,8 @@ textarea:focus-visible {
 .command-button:hover,
 .small-button:hover,
 .small-button-active {
-  background: #00a6a6;
-  border-color: #007f7d;
+  background: var(--accent);
+  border-color: var(--accent-strong);
 }
 
 .small-button {
@@ -188,11 +211,11 @@ textarea:focus-visible {
 
 .collection-card {
   width: 100%;
-  border: 1px solid #e5d6b6;
+  border: 1px solid var(--border);
   border-radius: 0.45rem;
-  background: #ffffff;
+  background: var(--panel);
   padding: 0.75rem;
-  color: #1d2528;
+  color: var(--foreground);
   cursor: pointer;
   text-align: left;
   user-select: none;
@@ -200,12 +223,12 @@ textarea:focus-visible {
 
 .collection-card:hover,
 .collection-card-active {
-  border-color: #00a6a6;
-  box-shadow: 0 8px 18px rgba(23, 33, 38, 0.08);
+  border-color: var(--accent);
+  box-shadow: 0 8px 18px rgba(0, 8, 20, 0.08);
 }
 
 .collection-card-active {
-  background: #f3f7f2;
+  background: var(--selected);
 }
 
 .collection-card[draggable="true"] {
@@ -227,10 +250,10 @@ textarea:focus-visible {
   z-index: 50;
   min-width: 10rem;
   overflow: hidden;
-  border: 1px solid #d8c7a3;
+  border: 1px solid var(--border);
   border-radius: 0.45rem;
-  background: #fffdf8;
-  box-shadow: 0 16px 32px rgba(23, 33, 38, 0.18);
+  background: var(--input);
+  box-shadow: 0 16px 32px rgba(0, 8, 20, 0.18);
 }
 
 .context-menu-item {
@@ -241,22 +264,22 @@ textarea:focus-visible {
   border: 0;
   background: transparent;
   padding: 0 0.8rem;
-  color: #1d2528;
+  color: var(--foreground);
   font-size: 0.9rem;
   font-weight: 800;
   text-align: left;
 }
 
 .context-menu-item:hover {
-  background: #f8f3e8;
+  background: var(--surface-hover);
 }
 
 .context-menu-danger {
-  color: #9b2c2c;
+  color: var(--danger);
 }
 
 .context-menu-danger:hover {
-  background: #ffe9d9;
+  background: var(--tag-bg);
 }
 
 .modal-backdrop {
@@ -265,7 +288,7 @@ textarea:focus-visible {
   z-index: 60;
   display: grid;
   place-items: center;
-  background: rgba(23, 33, 38, 0.48);
+  background: rgba(0, 8, 20, 0.48);
   padding: 1rem;
 }
 
@@ -273,11 +296,11 @@ textarea:focus-visible {
   width: min(36rem, 100%);
   max-height: min(42rem, 92vh);
   overflow-y: auto;
-  border: 1px solid #d8c7a3;
+  border: 1px solid var(--border);
   border-radius: 0.5rem;
-  background: #ffffff;
+  background: var(--panel);
   padding: 1rem;
-  box-shadow: 0 24px 64px rgba(23, 33, 38, 0.3);
+  box-shadow: 0 24px 64px rgba(0, 8, 20, 0.3);
 }
 
 .review-title-button {
@@ -285,7 +308,7 @@ textarea:focus-visible {
   border: 0;
   background: transparent;
   padding: 0;
-  color: #1d2528;
+  color: var(--foreground);
   font-size: 1.5rem;
   font-weight: 900;
   line-height: 1.75rem;
@@ -293,7 +316,7 @@ textarea:focus-visible {
 }
 
 .review-title-button:hover {
-  color: #1d2528;
+  color: var(--foreground);
 }
 
 .rating-row {
@@ -304,26 +327,26 @@ textarea:focus-visible {
 
 .rating-button {
   min-height: 2.75rem;
-  border: 1px solid #d8c7a3;
+  border: 1px solid var(--border);
   border-radius: 0.45rem;
-  background: #fffdf8;
-  color: #465255;
+  background: var(--input);
+  color: var(--secondary);
   font-weight: 900;
 }
 
 .rating-button-active {
-  border-color: #d69e2e;
-  background: #f5b84b;
-  color: #172126;
+  border-color: var(--accent);
+  background: var(--accent-light);
+  color: var(--foreground);
 }
 
 .pill-control {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.35rem;
-  border: 1px solid #d8c7a3;
+  border: 1px solid var(--border);
   border-radius: 999px;
-  background: #fffdf8;
+  background: var(--input);
   padding: 0.25rem;
 }
 
@@ -332,56 +355,56 @@ textarea:focus-visible {
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: #465255;
+  color: var(--secondary);
   font-weight: 900;
 }
 
 .pill-option:hover {
-  background: #f8f3e8;
+  background: var(--surface-hover);
 }
 
 .pill-option-active {
-  background: #172126;
-  color: #ffffff;
+  background: var(--surface-deep);
+  color: var(--panel);
 }
 
 .pill-option-active:hover {
-  background: #172126;
+  background: var(--surface-deep);
 }
 
 .review-notes {
   min-height: 10rem;
   width: 100%;
   resize: vertical;
-  border: 1px solid #d8c7a3;
+  border: 1px solid var(--border);
   border-radius: 0.45rem;
-  background: #fffdf8;
+  background: var(--input);
   padding: 0.75rem;
   outline: none;
 }
 
 .review-notes:focus {
-  border-color: #00a6a6;
-  box-shadow: 0 0 0 4px rgba(0, 166, 166, 0.16);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px rgba(71, 156, 245, 0.2);
 }
 
 .review-summary {
   display: grid;
   gap: 0.2rem;
-  border: 1px solid #e5d6b6;
+  border: 1px solid var(--border);
   border-radius: 0.45rem;
-  background: #fffdf8;
+  background: var(--input);
   padding: 0.75rem;
-  color: #1d2528;
+  color: var(--foreground);
 }
 
 .review-summary:hover {
-  border-color: #00a6a6;
-  background: #f3f7f2;
+  border-color: var(--accent);
+  background: var(--selected);
 }
 
 .review-summary span {
-  color: #687376;
+  color: var(--muted);
   font-size: 0.9rem;
   font-weight: 700;
 }
@@ -401,12 +424,12 @@ textarea:focus-visible {
 .scroll-column::-webkit-scrollbar-thumb {
   border: 0.18rem solid transparent;
   border-radius: 999px;
-  background: rgba(104, 115, 118, 0.45);
+  background: rgba(116, 157, 203, 0.45);
   background-clip: padding-box;
 }
 
 .scroll-column::-webkit-scrollbar-thumb:hover {
-  background: rgba(70, 82, 85, 0.65);
+  background: rgba(116, 157, 203, 0.65);
   background-clip: padding-box;
 }
 
@@ -418,11 +441,11 @@ textarea:focus-visible {
   gap: 1rem;
   align-items: center;
   justify-content: space-between;
-  border: 1px solid #d8c7a3;
+  border: 1px solid var(--border);
   border-radius: 0.5rem;
-  background: white;
+  background: var(--panel);
   padding: 1rem;
-  box-shadow: 0 1px 2px rgba(23, 33, 38, 0.05);
+  box-shadow: 0 1px 2px rgba(0, 8, 20, 0.05);
 }
 
 .mod-row > div:first-child {
@@ -445,9 +468,24 @@ textarea:focus-visible {
 
 .mod-row:hover,
 .mod-row-active {
-  border-color: #00a6a6;
-  box-shadow: 0 10px 28px rgba(23, 33, 38, 0.1);
+  border-color: var(--accent);
+  box-shadow: 0 10px 28px rgba(0, 8, 20, 0.1);
   transform: translateY(-1px);
+}
+
+.mod-config-dropdown {
+  border: 1px solid var(--border);
+  border-top: 0;
+  border-radius: 0 0 0.5rem 0.5rem;
+  background: var(--input);
+}
+
+.mod-config-dropdown > summary {
+  cursor: pointer;
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--accent-light);
 }
 
 .mod-thumbnail {
@@ -455,10 +493,10 @@ textarea:focus-visible {
   height: 3.25rem;
   flex: 0 0 auto;
   overflow: hidden;
-  border: 1px solid #d8c7a3;
+  border: 1px solid var(--border);
   border-radius: 0.45rem;
-  background: #172126;
-  color: #f5b84b;
+  background: var(--surface-deep);
+  color: var(--accent-light);
   object-fit: cover;
 }
 
@@ -518,13 +556,75 @@ textarea:focus-visible {
   .app-columns {
     min-height: 0;
     width: 100%;
+    padding-top: 0;
+  }
+
+  .app-columns > aside {
+    padding-top: 1.25rem;
+    padding-bottom: 1.25rem;
+  }
+
+  .mod-column {
+    padding-top: 1.25rem;
+    padding-bottom: 1.25rem;
+  }
+
+  .app-columns > .right-column {
+    margin-top: 0;
+    padding-top: 1.25rem;
+    padding-bottom: 1.25rem;
   }
 
   .scroll-column {
     overflow-y: auto;
     overscroll-behavior: contain;
     padding-right: 0.2rem;
-    scrollbar-color: rgba(104, 115, 118, 0.45) transparent;
+    scrollbar-color: rgba(116, 157, 203, 0.45) transparent;
     scrollbar-width: thin;
   }
+}
+
+input::placeholder, textarea::placeholder { color: var(--muted); opacity: 0.85; }
+.command-button, .small-button { background: #2869b8; border-color: #438cd7; }
+.command-button:hover, .small-button:hover, .small-button-active { background: #337fcf; border-color: var(--accent-light); }
+.icon-button:hover, .rating-button-active { background: var(--selected); color: var(--foreground); }
+::selection { background: #315f92; color: #ffffff; }
+
+.config-diff {
+  max-height: 30rem;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--surface-deep);
+  padding: 0.75rem;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  tab-size: 4;
+}
+
+.config-diff > span { display: block; min-width: max-content; }
+.diff-added { background: #173e37; color: #b4f1d1; }
+.diff-removed { background: #462b38; color: #ffc0ca; }
+.diff-header { color: var(--secondary); }
+.diff-hunk { background: var(--selected); color: var(--accent-light); }
+
+.read-only .workspace-nav input,
+.read-only .workspace-nav .command-button,
+.read-only .workspace-nav .small-button {
+  display: none;
+}
+
+.read-only .context-menu {
+  display: none;
+}
+
+.member-view .workspace-nav input,
+.member-view .workspace-nav .command-button,
+.member-view .context-menu {
+  display: none;
+}
+
+.member-view .collection-navigation .small-button {
+  display: none;
 }

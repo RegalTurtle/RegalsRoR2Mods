@@ -1,3 +1,5 @@
+import { canSeePack, canSeeGroup } from "@/lib/access";
+import { guardApi, getUser } from "@/lib/auth";
 import { getDb, getWorkspaceId } from "@/lib/mongodb";
 import { readModpacks, saveModpacks } from "@/lib/modpacks";
 
@@ -9,6 +11,7 @@ type Pack = {
   color: string;
   notes: string;
   modIds: string[];
+  curatedVersions?: Record<string, string>;
 };
 
 type ModGroup = {
@@ -43,6 +46,9 @@ function normalizePack(value: unknown): Pack | undefined {
   ) {
     return undefined;
   }
+  if (candidate.curatedVersions !== undefined && (!candidate.curatedVersions ||
+    typeof candidate.curatedVersions !== "object" || Array.isArray(candidate.curatedVersions) ||
+    Object.values(candidate.curatedVersions).some((value) => typeof value !== "string" || !/^\d+\.\d+\.\d+$/.test(value)))) return undefined;
 
   return {
     id: candidate.id,
@@ -50,6 +56,7 @@ function normalizePack(value: unknown): Pack | undefined {
     color: candidate.color,
     notes: typeof candidate.notes === "string" ? candidate.notes : "",
     modIds: candidate.modIds,
+    ...(candidate.curatedVersions !== undefined ? { curatedVersions: candidate.curatedVersions as Record<string, string> } : {}),
   };
 }
 
@@ -100,7 +107,9 @@ function normalizeBody(value: unknown) {
   };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = await guardApi(request);
+  if (denied) return denied;
   try {
     const db = await getDb();
     const packs = await readModpacks(db, getWorkspaceId());
@@ -111,11 +120,15 @@ export async function GET() {
         { projection: { _id: 0, packs: 1, groups: 1, tags: 1, updatedAt: 1 } },
       );
 
+    const user = (await getUser())!;
+    const visiblePacks = packs.filter((pack) => canSeePack(user, pack.id));
+    const visibleGroups = (workspace?.groups ?? []).filter((group) => canSeeGroup(user, group.id));
+    const visibleModIds = new Set([...visiblePacks, ...visibleGroups].flatMap((item) => item.modIds));
     return Response.json({
       exists: Boolean(workspace) || packs.length > 0,
-      packs,
-      groups: workspace?.groups ?? [],
-      tags: workspace?.tags ?? {},
+      packs: visiblePacks,
+      groups: visibleGroups,
+      tags: user.role === "admin" ? workspace?.tags ?? {} : Object.fromEntries(Object.entries(workspace?.tags ?? {}).filter(([id]) => visibleModIds.has(id))),
       updatedAt: workspace?.updatedAt ?? null,
     });
   } catch (error) {
@@ -127,6 +140,8 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
+  const denied = await guardApi(request, false, true);
+  if (denied) return denied;
   try {
     const raw = await request.json();
     if (!raw || !Array.isArray(raw.packs) || !Array.isArray(raw.groups) ||
@@ -140,6 +155,21 @@ export async function PUT(request: Request) {
     }
     const db = await getDb();
     const updatedAt = new Date();
+
+    const user = (await getUser())!;
+    if (user.role !== "admin") {
+      const existing = await readModpacks(db, getWorkspaceId());
+      if (body.packs.some((pack) => !canSeePack(user, pack.id) || !existing.some((saved) => saved.id === pack.id))) {
+        return Response.json({ error: "You may only edit existing modpacks you have access to" }, { status: 403 });
+      }
+      // Update only submitted permitted documents. A filtered workspace snapshot
+      // must never soft-delete missing (hidden) packs or overwrite collections.
+      for (const pack of body.packs) {
+        await db.collection("modpacks").updateOne({ workspaceId: getWorkspaceId(), id: pack.id, deletedAt: { $exists: false } },
+          { $set: { ...pack, updatedAt } });
+      }
+      return Response.json({ ok: true, updatedAt });
+    }
 
     await saveModpacks(db, getWorkspaceId(), body.packs);
 

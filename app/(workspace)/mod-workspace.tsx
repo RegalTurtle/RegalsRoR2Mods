@@ -5,6 +5,10 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { Dispatch, SetStateAction, UIEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import ProfileDownload from "./profile-download";
+import LogoutButton from "./logout-button";
+import { readWorkspaceCache, writeWorkspaceCache } from "@/lib/workspace-cache";
+import ModConfigPanel from "./mod-config-panel";
 
 type ThunderstoreVersion = {
   version_number?: string;
@@ -55,6 +59,8 @@ type Pack = {
   color: string;
   notes: string;
   modIds: string[];
+  curatedVersions?: Record<string, string>;
+  configs?: Record<string, unknown>;
 };
 
 type ModGroup = {
@@ -171,7 +177,8 @@ function normalizePackage(pkg: ThunderstorePackage): Mod {
   };
 }
 
-export default function ModWorkspace({ children }: { children: React.ReactNode }) {
+export default function ModWorkspace({ children, username, isAdmin }: { children: React.ReactNode; username: string; isAdmin: boolean }) {
+  const storageKey = `${STORAGE_KEY}:${username}`;
   const pathname = usePathname();
   const router = useRouter();
   const segments = pathname.split("/").filter(Boolean);
@@ -194,6 +201,7 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
   const [replayFilter, setReplayFilter] = useState<ReplayFilter>("all");
   const [sortMode, setSortMode] = useState<SortMode>("updated");
   const [selectedModId, setSelectedModId] = useState("");
+  const [configStatus, setConfigStatus] = useState<{ packId: string; modIds: string[] }>({ packId: "", modIds: [] });
   const [newPackName, setNewPackName] = useState("");
   const [newGroupName, setNewGroupName] = useState("");
   const [newTag, setNewTag] = useState("");
@@ -215,7 +223,8 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
   const lastSavedWorkspace = useRef<string | null>(null);
 
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    let saved: string | null = null;
+    try { saved = readWorkspaceCache(localStorage, storageKey) ?? (isAdmin ? readWorkspaceCache(localStorage, STORAGE_KEY) : null); } catch { /* Storage can be disabled. */ }
     if (!saved) {
       const markLoaded = window.setTimeout(() => setHasLoadedSavedWorkspace(true), 0);
       return () => window.clearTimeout(markLoaded);
@@ -230,26 +239,28 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
       };
       const loadSavedWorkspace = window.setTimeout(() => {
         if (parsed.mods?.length) setMods(parsed.mods);
-        if (parsed.packs?.length) {
+        if (isAdmin && parsed.packs?.length) {
           setPacks(parsed.packs);
         }
-        if (parsed.groups?.length) setGroups(parsed.groups);
-        if (parsed.tags) setTags(parsed.tags);
+        if (isAdmin && parsed.groups?.length) setGroups(parsed.groups);
+        if (isAdmin && parsed.tags) setTags(parsed.tags);
         setHasLoadedSavedWorkspace(true);
       }, 0);
 
       return () => window.clearTimeout(loadSavedWorkspace);
     } catch {
-      localStorage.removeItem(STORAGE_KEY);
+      // Ignore invalid cached data; do not delete potentially recoverable data.
       const markLoaded = window.setTimeout(() => setHasLoadedSavedWorkspace(true), 0);
       return () => window.clearTimeout(markLoaded);
     }
-  }, []);
+  }, [storageKey, isAdmin]);
 
   useEffect(() => {
     if (!hasLoadedSavedWorkspace) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ mods, packs, groups, tags }));
-  }, [groups, hasLoadedSavedWorkspace, mods, packs, tags]);
+    const cachedPacks = packs.map(({ id, name, color, notes, modIds, curatedVersions }) => ({ id, name, color, notes, modIds, curatedVersions }));
+    const compact = isAdmin ? { packs: cachedPacks, groups, tags } : {};
+    try { writeWorkspaceCache(localStorage, storageKey, { ...compact, mods }, compact); } catch { /* Caching is optional. */ }
+  }, [groups, hasLoadedSavedWorkspace, mods, packs, tags, storageKey, isAdmin]);
 
   useEffect(() => {
     if (!hasLoadedSavedWorkspace) return;
@@ -290,7 +301,7 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
     return () => {
       ignore = true;
     };
-  }, [hasLoadedSavedWorkspace]);
+  }, [hasLoadedSavedWorkspace, isAdmin]);
 
   useEffect(() => {
     if (!hasLoadedPersistentWorkspace || !hasLoadedSavedWorkspace || !canSavePersistentWorkspace.current) return;
@@ -389,6 +400,18 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
   );
 
   const activePack = activeCollection.type === "pack" ? packs.find((pack) => pack.id === activeCollection.id) : undefined;
+  const configPackId = activePack?.id;
+  useEffect(() => {
+    if (!configPackId) return;
+    let ignore = false;
+    fetch(`/api/mod-configs?packId=${encodeURIComponent(configPackId)}`, { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const data = await response.json() as { configs: { modId: string }[] };
+        if (!ignore) setConfigStatus({ packId: configPackId, modIds: data.configs.map((config) => config.modId) });
+      }).catch(() => {});
+    return () => { ignore = true; };
+  }, [configPackId]);
   const activeGroup =
     activeCollection.type === "group" ? groups.find((group) => group.id === activeCollection.id) : undefined;
 
@@ -499,6 +522,7 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
   }
 
   function createPack() {
+    if (!isAdmin) return;
     const name = newPackName.trim();
     if (!name) return;
     const id = makeId(name);
@@ -520,6 +544,7 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
   }
 
   function createGroup() {
+    if (!isAdmin) return;
     const name = newGroupName.trim();
     if (!name) return;
     const id = makeId(name);
@@ -541,15 +566,31 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
     setActiveCollection({ type: "group", id });
   }
 
-  function togglePackMod(packId: string, modId: string) {
+  async function togglePackMod(packId: string, modId: string) {
+    const target = packs.find((pack) => pack.id === packId);
+    if (!target) return;
+    const adding = !target.modIds.includes(modId);
+    if (adding && activePack && activePack.id !== packId && activePack.modIds.includes(modId)) {
+      try {
+        const response = await fetch("/api/mod-configs", { method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sourcePackId: activePack.id, targetPackId: packId, modId }) });
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error ?? "Unable to add mod and copy config.");
+        }
+      } catch (error) {
+        window.alert(error instanceof Error ? error.message : "Unable to add mod and copy config.");
+        return;
+      }
+    }
     setPacks((current) =>
       current.map((pack) =>
         pack.id === packId
           ? {
               ...pack,
-              modIds: pack.modIds.includes(modId)
-                ? pack.modIds.filter((id) => id !== modId)
-                : [...pack.modIds, modId],
+              modIds: adding
+                ? Array.from(new Set([...pack.modIds, modId]))
+                : pack.modIds.filter((id) => id !== modId),
             }
           : pack,
       ),
@@ -557,6 +598,7 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
   }
 
   function deletePack(packId: string) {
+    if (!isAdmin) return;
     const pack = packs.find((item) => item.id === packId);
     if (!pack || !window.confirm(`Delete mod pack "${pack.name}"?`)) return;
 
@@ -570,6 +612,7 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
   }
 
   function toggleGroupMod(groupId: string, modId: string) {
+    if (!isAdmin) return;
     setGroups((current) =>
       current.map((group) =>
         group.id === groupId
@@ -585,6 +628,7 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
   }
 
   function dropCollection(type: "pack" | "group", targetId: string) {
+    if (!isAdmin) return;
     if (!draggedCollection || draggedCollection.type !== type) return;
 
     if (type === "pack") {
@@ -645,7 +689,7 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
   }
 
   return (
-    <main className="app-shell bg-[#f5f1e8] text-[#1d2528]">
+    <main className={`${isAdmin ? "" : "member-view "}app-shell bg-[var(--background)] text-[var(--foreground)]`}>
       {packContextMenu && (
         <div
           className="context-menu"
@@ -675,11 +719,11 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
           <div className="review-modal" onClick={(event) => event.stopPropagation()}>
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <p className="text-xs font-black uppercase tracking-[0.12em] text-[#687376]">Mod notes</p>
+                <p className="text-xs font-black uppercase tracking-[0.12em] text-[var(--muted)]">Mod notes</p>
                 <h2 id="review-title" className="force-wrap mt-1 text-2xl font-black">
                   {reviewModalMod.name}
                 </h2>
-                <p className="force-wrap font-semibold text-[#687376]">by {reviewModalMod.owner}</p>
+                <p className="force-wrap font-semibold text-[var(--muted)]">by {reviewModalMod.owner}</p>
               </div>
               <button className="icon-button" type="button" onClick={closeReviewModal} title="Close review">
                 x
@@ -770,12 +814,12 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
             />
 
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm font-bold text-[#687376]">
+              <p className="text-sm font-bold text-[var(--muted)]">
                 {reviewSaveState === "saving" && "Saving..."}
                 {reviewSaveState === "saved" && "Saved"}
                 {reviewSaveState === "error" && "Save failed"}
               </p>
-              <button className="command-button px-4" type="button" onClick={saveReview}>
+              <button className="command-button px-4" type="button" disabled={!isAdmin} onClick={saveReview}>
                 Save review
               </button>
             </div>
@@ -783,19 +827,20 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
         </div>
       )}
 
-      <section className="app-header border-b border-[#d8c7a3] bg-[#172126] text-white">
-        <div className="grid w-full gap-8 px-5 py-8 lg:grid-cols-[1fr_380px]">
+      <section className="app-header border-b border-[var(--border)] bg-[var(--surface-deep)] text-white">
+        <div className="flex w-full items-center justify-between gap-4 px-5 py-6">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#f5b84b]">
+            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[var(--accent-light)]">
               Regal&apos;s Risk of Rain 2 Mod Organizer
             </p>
           </div>
+          <div className="flex items-center gap-3">{isAdmin && <Link className="small-button" href="/admin/users">Manage users</Link>}<Link className="small-button" href="/account">Account</Link><LogoutButton /></div>
         </div>
       </section>
 
       <section className="app-columns grid w-full gap-5 px-5 pt-5 xl:grid-cols-[minmax(0,3fr)_minmax(0,12fr)_minmax(0,5fr)]">
-        <aside className="scroll-column space-y-4">
-          <div className="rounded-lg border border-[#d8c7a3] bg-white p-4 shadow-sm">
+        <aside className="scroll-column workspace-nav space-y-4">
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--panel)] p-4 shadow-sm">
             <h2 className="text-lg font-bold">Mod Packs</h2>
             <div className="mt-4 flex gap-2">
               <input
@@ -851,7 +896,7 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
                           <span className="h-3 w-3 rounded-sm" style={{ background: pack.color }} />
                           <Link className="truncate font-bold" href={`/modpacks/${encodeURIComponent(pack.id)}`} aria-current={activePack?.id === pack.id ? "page" : undefined} onClick={(event) => event.stopPropagation()}>{pack.name}</Link>
                         </div>
-                        <p className="mt-1 text-xs text-[#687376]">{pack.modIds.length} mods</p>
+                        <p className="mt-1 text-xs text-[var(--muted)]">{pack.modIds.length} mods</p>
                       </div>
                       {selectedMod && (
                         <button
@@ -872,7 +917,7 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
             </div>
           </div>
 
-          <div className="rounded-lg border border-[#d8c7a3] bg-white p-4 shadow-sm">
+          <div className="collection-navigation rounded-lg border border-[var(--border)] bg-[var(--panel)] p-4 shadow-sm">
             <h2 className="text-lg font-bold">Collections</h2>
             <div className="mt-4 flex gap-2">
               <input
@@ -897,10 +942,10 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="h-3 w-3 rounded-sm bg-[#172126]" />
+                      <span className="h-3 w-3 rounded-sm bg-[var(--surface-deep)]" />
                       <strong>All Mods</strong>
                     </div>
-                    <p className="mt-1 text-xs text-[#687376]">{mods.length} mods</p>
+                    <p className="mt-1 text-xs text-[var(--muted)]">{mods.length} mods</p>
                   </div>
                 </div>
               </button>
@@ -949,7 +994,7 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
                           <span className="h-3 w-3 rounded-sm" style={{ background: group.color }} />
                           <Link className="truncate font-bold" href={`/collections/${encodeURIComponent(group.id)}`} aria-current={activeGroup?.id === group.id ? "page" : undefined} onClick={(event) => event.stopPropagation()}>{group.name}</Link>
                         </div>
-                        <p className="mt-1 text-xs text-[#687376]">{group.modIds.length} mods</p>
+                        <p className="mt-1 text-xs text-[var(--muted)]">{group.modIds.length} mods</p>
                       </div>
                       {selectedMod && (
                         <button
@@ -971,9 +1016,9 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
           </div>
         </aside>
 
-        <section ref={centerColumnRef} className="scroll-column min-w-0" onScroll={handleCenterScroll}>
+        <section ref={centerColumnRef} className="scroll-column mod-column min-w-0" onScroll={handleCenterScroll}>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div><p className="text-xs font-bold uppercase tracking-widest text-[#687376]">{activeCollection.type === "pack" ? "Modpack" : activeCollection.type === "group" ? "Collection" : "Library"}</p><h1 className="text-2xl font-black">{activeCollectionName}</h1><p className="text-sm text-[#687376]">{filteredMods.length} matching mods</p></div>
+            <div><p className="text-xs font-bold uppercase tracking-widest text-[var(--muted)]">{activeCollection.type === "pack" ? "Modpack" : activeCollection.type === "group" ? "Collection" : "Library"}</p><h1 className="text-2xl font-black">{activeCollectionName}</h1><p className="text-sm text-[var(--muted)]">{filteredMods.length} matching mods</p></div>
             <button
               className="small-button"
               type="button"
@@ -990,15 +1035,16 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
           </div>
 
           <div className="mb-4">
-            {activePack && <div className="rounded-lg border border-[#d8c7a3] bg-white p-4"><label className="field-label !mt-0" htmlFor="pack-notes">Modpack notes</label><textarea id="pack-notes" className="text-field" value={activePack.notes} onChange={(event) => setPacks((current) => current.map((pack) => pack.id === activePack.id ? { ...pack, notes: event.target.value } : pack))} placeholder="Notes and load order reminders" /></div>}
-            {hasLoadedPersistentWorkspace && activeCollection.type !== "all" && !activePack && !activeGroup && <p className="rounded-lg border border-[#d8c7a3] bg-white p-5">This {activeCollection.type === "pack" ? "modpack" : "collection"} could not be found. Choose one from the left sidebar.</p>}
+            {activePack && <div className="rounded-lg border border-[var(--border)] bg-[var(--panel)] p-4"><label className="field-label !mt-0" htmlFor="pack-notes">Modpack notes</label><textarea id="pack-notes" className="text-field" value={activePack.notes} onChange={(event) => setPacks((current) => current.map((pack) => pack.id === activePack.id ? { ...pack, notes: event.target.value } : pack))} placeholder="Notes and load order reminders" /></div>}
+            {hasLoadedPersistentWorkspace && activeCollection.type !== "all" && !activePack && !activeGroup && <p className="rounded-lg border border-[var(--border)] bg-[var(--panel)] p-5">This {activeCollection.type === "pack" ? "modpack" : "collection"} could not be found. Choose one from the left sidebar.</p>}
           </div>
+          {activePack && <ProfileDownload key={activePack.id} pack={activePack} />}
           <div className="mod-list grid gap-2">
             {visibleMods.map((mod) => {
               const active = selectedMod?.id === mod.id;
               return (
+                <article key={mod.id}>
                 <button
-                  key={mod.id}
                   className={`mod-row ${active ? "mod-row-active" : ""}`}
                   type="button"
                   onClick={() => setSelectedModId(mod.id)}
@@ -1007,12 +1053,12 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
                     <ModThumbnail mod={mod} size="sm" />
                     <div className="min-w-0 flex-1 text-left">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="force-wrap text-base font-black">{mod.name}</span><span className="text-xs text-[#687376]">v{mod.version}</span>
-                        <span className="rounded bg-[#edf7f5] px-2 py-1 text-xs font-bold text-[#006c67]">
+                        <span className="force-wrap text-base font-black">{mod.name}</span><span className="text-xs text-[var(--muted)]">v{mod.version}</span>
+                        <span className="rounded bg-[var(--selected)] px-2 py-1 text-xs font-bold text-[var(--accent-light)]">
                           {mod.owner}
                         </span>
                       </div>
-                      <p className="mt-2 line-clamp-2 text-sm leading-6 text-[#526064]">{mod.description}</p>
+                      <p className="mt-2 line-clamp-2 text-sm leading-6 text-[var(--secondary)]">{mod.description}</p>
                     </div>
                   </div>
 
@@ -1031,15 +1077,17 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
                   </div>
                   <div className="grid shrink-0 gap-1 text-left text-sm sm:text-right">
                     <strong>{formatNumber(mod.downloads)}</strong>
-                    <span className="text-[#687376]">downloads</span>
-                    <span className="font-semibold text-[#9b4d31]">{mod.rating} likes</span>
+                    <span className="text-[var(--muted)]">downloads</span>
+                    <span className="font-semibold text-[var(--tag-text)]">{mod.rating} likes</span>
                   </div>
                 </button>
+                {activePack && <ModConfigPanel key={`${mod.id}:${activePack.id}`} modId={mod.id} version={mod.version} packId={activePack.id} packName={activePack.name} canEdit={true} hasConfig={configStatus.packId === activePack.id ? configStatus.modIds.includes(mod.id) : Boolean(activePack.configs?.[mod.id])} />}
+                </article>
               );
             })}
           </div>
           {activeCollection.type === "all" && (
-            <div className="py-5 text-center text-sm font-bold text-[#687376]">
+            <div className="py-5 text-center text-sm font-bold text-[var(--muted)]">
               Showing {visibleMods.length} of {filteredMods.length}
               {hasMoreAllMods && (
                 <button className="small-button ml-3" type="button" onClick={loadMoreAllMods}>
@@ -1050,9 +1098,9 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
           )}
         </section>
 
-        <aside className="scroll-column flex flex-col gap-4">
+        <aside className="scroll-column right-column flex flex-col gap-4">
           {selectedMod && (
-            <div className="rounded-lg border border-[#d8c7a3] bg-white p-4 shadow-sm">
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--panel)] p-4 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <ModThumbnail mod={selectedMod} size="lg" />
@@ -1063,20 +1111,20 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
                   >
                     {selectedMod.name}
                   </button>
-                  <p className="force-wrap mt-1 font-semibold text-[#687376]">by {selectedMod.owner}</p>
+                  <p className="force-wrap mt-1 font-semibold text-[var(--muted)]">by {selectedMod.owner}</p>
                 </div>
                 <a className="icon-button" href={selectedMod.url} target="_blank" rel="noreferrer" title="Open on Thunderstore">
                   ↗
                 </a>
               </div>
-              <p className="mt-4 text-sm leading-6 text-[#465255]">{selectedMod.description}</p>
+              <p className="mt-4 text-sm leading-6 text-[var(--secondary)]">{selectedMod.description}</p>
               <dl className="mt-5 grid grid-cols-2 gap-3 text-sm">
                 <Info label="Version" value={selectedMod.version} />
                 <Info label="Updated" value={formatDate(selectedMod.updated)} />
                 <Info label="Downloads" value={formatNumber(selectedMod.downloads)} />
                 <Info label="Likes" value={selectedMod.rating.toString()} />
               </dl>
-              <div className="mt-4 rounded bg-[#f3f7f2] p-3 font-mono text-xs text-[#2d4432]">
+              <div className="mt-4 rounded bg-[var(--selected)] p-3 font-mono text-xs text-[var(--accent-light)]">
                 {selectedMod.dependency}
               </div>
               <button
@@ -1106,7 +1154,7 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
                 {(tags[selectedMod.id] ?? []).map((item) => (
                   <button
                     key={item}
-                    className="rounded bg-[#ffe9d9] px-2 py-1 text-xs font-bold text-[#9b4d31]"
+                    className="rounded bg-[var(--tag-bg)] px-2 py-1 text-xs font-bold text-[var(--tag-text)]"
                     type="button"
                     onClick={() => removeTag(selectedMod.id, item)}
                     title={`Remove ${item}`}
@@ -1132,20 +1180,20 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
             </div>
           )}
 
-          <div className="rounded-lg border border-[#d8c7a3] bg-white p-4 shadow-sm">
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--panel)] p-4 shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-lg font-bold">Filters</h2>
               <button className="icon-button" type="button" onClick={syncThunderstore} title="Sync Thunderstore">
                 {syncState === "loading" ? "..." : "↻"}
               </button>
             </div>
-            <p className="mt-2 min-h-5 text-sm text-[#687376]">
+            <p className="mt-2 min-h-5 text-sm text-[var(--muted)]">
               {syncState === "synced" && "Synced live package data."}
               {syncState === "error" && "Live sync failed. Using saved or sample data."}
               {syncState === "idle" && "Use the sync button to fetch current Thunderstore packages."}
               {syncState === "loading" && "Fetching packages from Thunderstore..."}
             </p>
-            <p className="mt-2 rounded bg-[#f3f7f2] px-3 py-2 text-xs font-bold text-[#2d4432]">
+            <p className="mt-2 rounded bg-[var(--selected)] px-3 py-2 text-xs font-bold text-[var(--accent-light)]">
               {persistenceState === "loading" && "Storage: connecting to Mongo..."}
               {persistenceState === "saving" && "Storage: saving packs, groups, and tags..."}
               {persistenceState === "synced" && "Storage: Mongo synced"}
@@ -1201,7 +1249,7 @@ export default function ModWorkspace({ children }: { children: React.ReactNode }
                       <span>#{item}</span>
                     </label>
                   ))}
-                {allTags.length === 1 && <p className="px-1 py-2 text-sm text-[#687376]">No tags yet.</p>}
+                {allTags.length === 1 && <p className="px-1 py-2 text-sm text-[var(--muted)]">No tags yet.</p>}
               </div>
             </details>
 
@@ -1266,10 +1314,10 @@ function Pill({
 }) {
   const toneClass =
     tone === "deprecated"
-      ? "bg-[#ffe1df] text-[#a62318]"
+      ? "bg-[var(--danger-bg)] text-[var(--danger)]"
       : tone === "tag"
-        ? "bg-[#ffe9d9] text-[#9b4d31]"
-        : "bg-[#e7efe0] text-[#42622f]";
+        ? "bg-[var(--tag-bg)] text-[var(--tag-text)]"
+        : "bg-[var(--category-bg)] text-[var(--category-text)]";
 
   return (
     <span className={`rounded px-2 py-1 text-xs font-bold ${toneClass}`}>
@@ -1309,8 +1357,8 @@ function ModThumbnail({ mod, size }: { mod: Mod; size: "sm" | "lg" }) {
 
 function Info({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded bg-[#f8f3e8] p-3">
-      <dt className="text-xs font-bold uppercase tracking-[0.08em] text-[#687376]">{label}</dt>
+    <div className="rounded bg-[var(--surface-hover)] p-3">
+      <dt className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--muted)]">{label}</dt>
       <dd className="mt-1 font-black">{value}</dd>
     </div>
   );

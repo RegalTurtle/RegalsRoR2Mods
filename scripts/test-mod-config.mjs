@@ -1,0 +1,14 @@
+import assert from "node:assert/strict";
+import { parseConfig, editConfig } from "../lib/mod-config.ts";
+const text = '\ufeff# Original file\r\n[General]\r\n## Enable the feature\r\n# Setting type: Boolean\r\nEnabled = true\r\n\r\n[Advanced]\r\n# Acceptable values: Easy, Hard\r\nMode = Easy  \r\nUnchanged = 42\r\n';
+const settings = parseConfig(text);
+assert.equal(settings.length, 3);
+assert.equal(settings[0].section, 'General');
+assert.equal(settings[0].type, 'Boolean');
+assert.equal(settings[0].description, 'Enable the feature');
+assert.deepEqual(settings[1].choices, ['Easy', 'Hard']);
+assert.equal(editConfig(text, {}), text);
+assert.equal(editConfig(text, {[settings[0].line]:'false', [settings[1].line]:'Hard'}), text.replace('Enabled = true', 'Enabled = false').replace('Mode = Easy', 'Mode = Hard'));
+assert.throws(() => editConfig(text, {[settings[0].line]:'false\nInjected = true'}));
+assert.throws(() => editConfig(text, {100:'bad'}));
+console.log('Passed config parsing, sections, metadata, exact preservation, setting edits, and invalid edits.');
