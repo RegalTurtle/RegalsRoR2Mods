@@ -37,7 +37,7 @@ Legacy embedded workspaces.packs data migrates automatically on the first worksp
 To run the migration manually using .env, run npm run db:migrate-modpacks (requires Node.js 24). Use node scripts/test-modpack-migration.mjs to test migration behavior without touching MongoDB. An empty legacy packs array cannot recover missing modpacks; recovery requires another database, backup, or browser cache.
 To import a legacy workspace API export, run `node --env-file=.env scripts/import-workspace.mjs <workspace.json>`. This saves a recovery backup, imports separate modpack documents, merges collections and tags, and verifies imported memberships. The production recovery export is saved in `production-workspace-recovery.json`.
 The workspace API reports whether a saved workspace exists so an empty database can import the local workspace without discarding it. Loading an existing workspace does not trigger an unchanged save. If the database cannot be read, the app uses local storage and avoids automatically overwriting the database.
-Thunderstore package data is cached in the browser; use the sync control in Filters to load or refresh it on another browser.
+Thunderstore package data is stored in a separate public IndexedDB cache and an in-memory cache, so returning from Manage users or Account restores the catalog without a manual sync. Missing catalogs load automatically; catalogs older than six hours refresh automatically while cached mods remain visible. The Filters sync control forces an immediate refresh. If browser storage is unavailable, in-memory caching and automatic network loading still work. LocalStorage stores only compact workspace metadata and never the full catalog or config contents.
 
 ## Pages
 

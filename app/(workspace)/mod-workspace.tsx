@@ -7,6 +7,7 @@ import type { Dispatch, SetStateAction, UIEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import ProfileDownload from "./profile-download";
 import LogoutButton from "./logout-button";
+import { CATALOG_MAX_AGE, readModCatalog, refreshModCatalog } from "@/lib/mod-catalog-cache";
 import { readWorkspaceCache, writeWorkspaceCache } from "@/lib/workspace-cache";
 import ModConfigPanel from "./mod-config-panel";
 
@@ -177,6 +178,14 @@ function normalizePackage(pkg: ThunderstorePackage): Mod {
   };
 }
 
+async function fetchLiveMods(): Promise<Mod[]> {
+  const response = await fetch("https://thunderstore.io/c/riskofrain2/api/v1/package/", { cache: "no-store" });
+  if (!response.ok) throw new Error("Thunderstore sync failed");
+  const data = await response.json() as ThunderstorePackage[];
+  if (!Array.isArray(data)) throw new Error("Invalid Thunderstore catalog");
+  return data.map(normalizePackage).filter((mod) => !mod.nsfw);
+}
+
 export default function ModWorkspace({ children, username, isAdmin }: { children: React.ReactNode; username: string; isAdmin: boolean }) {
   const storageKey = `${STORAGE_KEY}:${username}`;
   const pathname = usePathname();
@@ -259,8 +268,29 @@ export default function ModWorkspace({ children, username, isAdmin }: { children
     if (!hasLoadedSavedWorkspace) return;
     const cachedPacks = packs.map(({ id, name, color, notes, modIds, curatedVersions }) => ({ id, name, color, notes, modIds, curatedVersions }));
     const compact = isAdmin ? { packs: cachedPacks, groups, tags } : {};
-    try { writeWorkspaceCache(localStorage, storageKey, { ...compact, mods }, compact); } catch { /* Caching is optional. */ }
-  }, [groups, hasLoadedSavedWorkspace, mods, packs, tags, storageKey, isAdmin]);
+    try { writeWorkspaceCache(localStorage, storageKey, compact, compact); } catch { /* Caching is optional. */ }
+  }, [groups, hasLoadedSavedWorkspace, packs, tags, storageKey, isAdmin]);
+
+  useEffect(() => {
+    if (!hasLoadedSavedWorkspace) return;
+    let ignore = false;
+    async function restoreCatalog() {
+      const cached = await readModCatalog<Mod>();
+      if (ignore) return;
+      if (cached?.mods.length) {
+        setMods(cached.mods);
+        setSyncState("synced");
+        if (Date.now() - cached.updatedAt < CATALOG_MAX_AGE) return;
+      }
+      setSyncState("loading");
+      try {
+        const fresh = await refreshModCatalog(fetchLiveMods);
+        if (!ignore) { setMods(fresh.mods); setSyncState("synced"); }
+      } catch { if (!ignore) setSyncState("error"); }
+    }
+    void restoreCatalog();
+    return () => { ignore = true; };
+  }, [hasLoadedSavedWorkspace]);
 
   useEffect(() => {
     if (!hasLoadedSavedWorkspace) return;
@@ -509,10 +539,7 @@ export default function ModWorkspace({ children, username, isAdmin }: { children
   async function syncThunderstore() {
     setSyncState("loading");
     try {
-      const response = await fetch("https://thunderstore.io/c/riskofrain2/api/v1/package/");
-      if (!response.ok) throw new Error("Thunderstore sync failed");
-      const data = (await response.json()) as ThunderstorePackage[];
-      const liveMods = data.map(normalizePackage).filter((mod) => !mod.nsfw);
+      const { mods: liveMods } = await refreshModCatalog(fetchLiveMods);
       setMods(liveMods);
       setSelectedModId(liveMods[0]?.id ?? selectedModId);
       setSyncState("synced");
@@ -1188,9 +1215,9 @@ export default function ModWorkspace({ children, username, isAdmin }: { children
               </button>
             </div>
             <p className="mt-2 min-h-5 text-sm text-[var(--muted)]">
-              {syncState === "synced" && "Synced live package data."}
-              {syncState === "error" && "Live sync failed. Using saved or sample data."}
-              {syncState === "idle" && "Use the sync button to fetch current Thunderstore packages."}
+              {syncState === "synced" && "Mod catalog ready. Automatically refreshed every 6 hours."}
+              {syncState === "error" && "Catalog refresh failed. Using cached mods when available."}
+              {syncState === "idle" && "Mod catalog loads automatically."}
               {syncState === "loading" && "Fetching packages from Thunderstore..."}
             </p>
             <p className="mt-2 rounded bg-[var(--selected)] px-3 py-2 text-xs font-bold text-[var(--accent-light)]">
