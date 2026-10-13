@@ -1,6 +1,8 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import type { Dispatch, SetStateAction, UIEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -169,7 +171,18 @@ function normalizePackage(pkg: ThunderstorePackage): Mod {
   };
 }
 
-export default function Home() {
+export default function ModWorkspace({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const segments = pathname.split("/").filter(Boolean);
+  const activeCollection: ActiveCollection = segments[0] === "modpacks" && segments[1]
+    ? { type: "pack", id: decodeURIComponent(segments[1]) }
+    : segments[0] === "collections" && segments[1]
+      ? { type: "group", id: decodeURIComponent(segments[1]) }
+      : { type: "all", id: "all" };
+  function setActiveCollection(collection: ActiveCollection) {
+    router.push(collection.type === "all" ? "/" : "/" + (collection.type === "pack" ? "modpacks" : "collections") + "/" + encodeURIComponent(collection.id), { scroll: false });
+  }
   const [mods, setMods] = useState<Mod[]>([]);
   const [packs, setPacks] = useState<Pack[]>([]);
   const [groups, setGroups] = useState<ModGroup[]>([]);
@@ -179,7 +192,6 @@ export default function Home() {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [playedFilter, setPlayedFilter] = useState<PlayedFilter>("all");
   const [replayFilter, setReplayFilter] = useState<ReplayFilter>("all");
-  const [activeCollection, setActiveCollection] = useState<ActiveCollection>({ type: "all", id: "all" });
   const [sortMode, setSortMode] = useState<SortMode>("updated");
   const [selectedModId, setSelectedModId] = useState("");
   const [newPackName, setNewPackName] = useState("");
@@ -199,6 +211,7 @@ export default function Home() {
   const [hasLoadedSavedWorkspace, setHasLoadedSavedWorkspace] = useState(false);
   const [hasLoadedPersistentWorkspace, setHasLoadedPersistentWorkspace] = useState(false);
   const centerColumnRef = useRef<HTMLElement>(null);
+  const canSavePersistentWorkspace = useRef(false);
 
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -218,7 +231,6 @@ export default function Home() {
         if (parsed.mods?.length) setMods(parsed.mods);
         if (parsed.packs?.length) {
           setPacks(parsed.packs);
-          setActiveCollection(topPackCollection(parsed.packs));
         }
         if (parsed.groups?.length) setGroups(parsed.groups);
         if (parsed.tags) setTags(parsed.tags);
@@ -239,6 +251,7 @@ export default function Home() {
   }, [groups, hasLoadedSavedWorkspace, mods, packs, tags]);
 
   useEffect(() => {
+    if (!hasLoadedSavedWorkspace) return;
     let ignore = false;
 
     async function loadWorkspace() {
@@ -247,18 +260,19 @@ export default function Home() {
         if (!response.ok) throw new Error("Mongo workspace unavailable");
 
         const workspace = (await response.json()) as {
+          exists?: boolean;
           packs?: Pack[];
           groups?: ModGroup[];
           tags?: Record<string, string[]>;
         };
 
         if (ignore) return;
-        if (workspace.packs?.length) {
+        if (workspace.exists !== false && workspace.packs) {
           setPacks(workspace.packs);
-          setActiveCollection(topPackCollection(workspace.packs));
         }
-        if (workspace.groups?.length) setGroups(workspace.groups);
-        if (workspace.tags && Object.keys(workspace.tags).length > 0) setTags(workspace.tags);
+        if (workspace.exists !== false && workspace.groups) setGroups(workspace.groups);
+        if (workspace.exists !== false && workspace.tags) setTags(workspace.tags);
+        canSavePersistentWorkspace.current = true;
         setPersistenceState("synced");
       } catch {
         if (!ignore) setPersistenceState("local");
@@ -272,10 +286,10 @@ export default function Home() {
     return () => {
       ignore = true;
     };
-  }, []);
+  }, [hasLoadedSavedWorkspace]);
 
   useEffect(() => {
-    if (!hasLoadedPersistentWorkspace) return;
+    if (!hasLoadedPersistentWorkspace || !hasLoadedSavedWorkspace || !canSavePersistentWorkspace.current) return;
 
     const saveWorkspace = window.setTimeout(async () => {
       setPersistenceState("saving");
@@ -295,7 +309,7 @@ export default function Home() {
     }, 500);
 
     return () => window.clearTimeout(saveWorkspace);
-  }, [groups, hasLoadedPersistentWorkspace, packs, tags]);
+  }, [groups, hasLoadedPersistentWorkspace, hasLoadedSavedWorkspace, packs, tags]);
 
   useEffect(() => {
     if (!packContextMenu) return;
@@ -374,11 +388,11 @@ export default function Home() {
   const collectionMods = useMemo(
     () =>
       mods.filter((mod) => {
-        const matchesPack = !activePack || activePack.modIds.includes(mod.id);
-        const matchesGroup = !activeGroup || activeGroup.modIds.includes(mod.id);
+        const matchesPack = activeCollection.type !== "pack" || Boolean(activePack?.modIds.includes(mod.id));
+        const matchesGroup = activeCollection.type !== "group" || Boolean(activeGroup?.modIds.includes(mod.id));
         return matchesPack && matchesGroup;
       }),
-    [activeGroup, activePack, mods],
+    [activeGroup, activePack, activeCollection.type, mods],
   );
 
   const allTags = useMemo(
@@ -481,6 +495,7 @@ export default function Home() {
     const name = newPackName.trim();
     if (!name) return;
     const id = makeId(name);
+    if (!id) return;
     if (packs.some((pack) => pack.id === id || pack.name.toLowerCase() === name.toLowerCase())) return;
 
     setPacks((current) => [
@@ -501,6 +516,7 @@ export default function Home() {
     const name = newGroupName.trim();
     if (!name) return;
     const id = makeId(name);
+    if (!id) return;
     if (id === "all" || groups.some((group) => group.id === id || group.name.toLowerCase() === name.toLowerCase())) {
       return;
     }
@@ -761,7 +777,7 @@ export default function Home() {
       )}
 
       <section className="app-header border-b border-[#d8c7a3] bg-[#172126] text-white">
-        <div className="mx-auto grid max-w-7xl gap-8 px-5 py-8 lg:grid-cols-[1fr_380px]">
+        <div className="grid w-full gap-8 px-5 py-8 lg:grid-cols-[1fr_380px]">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#f5b84b]">
               Regal&apos;s Risk of Rain 2 Mod Organizer
@@ -770,7 +786,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="app-columns mx-auto grid max-w-[96rem] gap-5 px-5 py-5 xl:grid-cols-[320px_minmax(0,1fr)_320px]">
+      <section className="app-columns grid w-full gap-5 px-5 pt-5 xl:grid-cols-[minmax(0,3fr)_minmax(0,12fr)_minmax(0,5fr)]">
         <aside className="scroll-column space-y-4">
           <div className="rounded-lg border border-[#d8c7a3] bg-white p-4 shadow-sm">
             <h2 className="text-lg font-bold">Mod Packs</h2>
@@ -826,7 +842,7 @@ export default function Home() {
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="h-3 w-3 rounded-sm" style={{ background: pack.color }} />
-                          <strong className="truncate">{pack.name}</strong>
+                          <Link className="truncate font-bold" href={`/modpacks/${encodeURIComponent(pack.id)}`} aria-current={activePack?.id === pack.id ? "page" : undefined} onClick={(event) => event.stopPropagation()}>{pack.name}</Link>
                         </div>
                         <p className="mt-1 text-xs text-[#687376]">{pack.modIds.length} mods</p>
                       </div>
@@ -843,20 +859,6 @@ export default function Home() {
                         </button>
                       )}
                     </div>
-                    <textarea
-                      className="mt-3 min-h-16 w-full resize-y rounded border border-[#e5d6b6] bg-[#fffdf8] p-2 text-sm outline-none focus:border-[#00a6a6]"
-                      value={pack.notes}
-                      onChange={(event) =>
-                        setPacks((current) =>
-                          current.map((item) =>
-                            item.id === pack.id ? { ...item, notes: event.target.value } : item,
-                          ),
-                        )
-                      }
-                      onClick={(event) => event.stopPropagation()}
-                      onKeyDown={(event) => event.stopPropagation()}
-                      placeholder="Notes, load order reminders, compatibility warnings"
-                    />
                   </div>
                 );
               })}
@@ -864,7 +866,7 @@ export default function Home() {
           </div>
 
           <div className="rounded-lg border border-[#d8c7a3] bg-white p-4 shadow-sm">
-            <h2 className="text-lg font-bold">Mod Groups</h2>
+            <h2 className="text-lg font-bold">Collections</h2>
             <div className="mt-4 flex gap-2">
               <input
                 className="text-field"
@@ -938,7 +940,7 @@ export default function Home() {
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="h-3 w-3 rounded-sm" style={{ background: group.color }} />
-                          <strong className="truncate">{group.name}</strong>
+                          <Link className="truncate font-bold" href={`/collections/${encodeURIComponent(group.id)}`} aria-current={activeGroup?.id === group.id ? "page" : undefined} onClick={(event) => event.stopPropagation()}>{group.name}</Link>
                         </div>
                         <p className="mt-1 text-xs text-[#687376]">{group.modIds.length} mods</p>
                       </div>
@@ -964,9 +966,7 @@ export default function Home() {
 
         <section ref={centerColumnRef} className="scroll-column min-w-0" onScroll={handleCenterScroll}>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-xl font-black">
-              {activeCollectionName}: {filteredMods.length} matching mods
-            </h2>
+            <div><p className="text-xs font-bold uppercase tracking-widest text-[#687376]">{activeCollection.type === "pack" ? "Modpack" : activeCollection.type === "group" ? "Collection" : "Library"}</p><h1 className="text-2xl font-black">{activeCollectionName}</h1><p className="text-sm text-[#687376]">{filteredMods.length} matching mods</p></div>
             <button
               className="small-button"
               type="button"
@@ -976,14 +976,17 @@ export default function Home() {
                 setSelectedTags([]);
                 setPlayedFilter("all");
                 setReplayFilter("all");
-                setActiveCollection(topPackCollection(packs));
               }}
             >
               Clear filters
             </button>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
+          <div className="mb-4">
+            {activePack && <div className="rounded-lg border border-[#d8c7a3] bg-white p-4"><label className="field-label !mt-0" htmlFor="pack-notes">Modpack notes</label><textarea id="pack-notes" className="text-field" value={activePack.notes} onChange={(event) => setPacks((current) => current.map((pack) => pack.id === activePack.id ? { ...pack, notes: event.target.value } : pack))} placeholder="Notes and load order reminders" /></div>}
+            {hasLoadedPersistentWorkspace && activeCollection.type !== "all" && !activePack && !activeGroup && <p className="rounded-lg border border-[#d8c7a3] bg-white p-5">This {activeCollection.type === "pack" ? "modpack" : "collection"} could not be found. Choose one from the left sidebar.</p>}
+          </div>
+          <div className="mod-list grid gap-2">
             {visibleMods.map((mod) => {
               const active = selectedMod?.id === mod.id;
               return (
@@ -997,7 +1000,7 @@ export default function Home() {
                     <ModThumbnail mod={mod} size="sm" />
                     <div className="min-w-0 flex-1 text-left">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="truncate text-base font-black">{mod.name}</span>
+                        <span className="force-wrap text-base font-black">{mod.name}</span><span className="text-xs text-[#687376]">v{mod.version}</span>
                         <span className="rounded bg-[#edf7f5] px-2 py-1 text-xs font-bold text-[#006c67]">
                           {mod.owner}
                         </span>
@@ -1041,7 +1044,88 @@ export default function Home() {
         </section>
 
         <aside className="scroll-column flex flex-col gap-4">
-          <div className="order-2 rounded-lg border border-[#d8c7a3] bg-white p-4 shadow-sm">
+          {selectedMod && (
+            <div className="rounded-lg border border-[#d8c7a3] bg-white p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <ModThumbnail mod={selectedMod} size="lg" />
+                  <button
+                    className="review-title-button force-wrap mt-3 text-left text-2xl font-black leading-7"
+                    type="button"
+                    onClick={() => openReviewModal(selectedMod)}
+                  >
+                    {selectedMod.name}
+                  </button>
+                  <p className="force-wrap mt-1 font-semibold text-[#687376]">by {selectedMod.owner}</p>
+                </div>
+                <a className="icon-button" href={selectedMod.url} target="_blank" rel="noreferrer" title="Open on Thunderstore">
+                  ↗
+                </a>
+              </div>
+              <p className="mt-4 text-sm leading-6 text-[#465255]">{selectedMod.description}</p>
+              <dl className="mt-5 grid grid-cols-2 gap-3 text-sm">
+                <Info label="Version" value={selectedMod.version} />
+                <Info label="Updated" value={formatDate(selectedMod.updated)} />
+                <Info label="Downloads" value={formatNumber(selectedMod.downloads)} />
+                <Info label="Likes" value={selectedMod.rating.toString()} />
+              </dl>
+              <div className="mt-4 rounded bg-[#f3f7f2] p-3 font-mono text-xs text-[#2d4432]">
+                {selectedMod.dependency}
+              </div>
+              <button
+                className="review-summary mt-4 w-full text-left"
+                type="button"
+                onClick={() => openReviewModal(selectedMod)}
+              >
+                <strong>Your review</strong>
+                <span>
+                  {reviews[selectedMod.id]
+                    ? `${reviews[selectedMod.id].rating || "No"} / 5, ${
+                        reviews[selectedMod.id].hasPlayed ? "played" : "not played"
+                      }${
+                        reviews[selectedMod.id].wantsReplay === null
+                          ? ""
+                          : reviews[selectedMod.id].wantsReplay
+                            ? ", replay yes"
+                            : ", replay no"
+                      }`
+                    : "Add rating and notes"}
+                </span>
+              </button>
+
+              <h3 className="mt-5 font-bold">Tags</h3>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {selectedMod.deprecated && <Pill tone="deprecated">Deprecated</Pill>}
+                {(tags[selectedMod.id] ?? []).map((item) => (
+                  <button
+                    key={item}
+                    className="rounded bg-[#ffe9d9] px-2 py-1 text-xs font-bold text-[#9b4d31]"
+                    type="button"
+                    onClick={() => removeTag(selectedMod.id, item)}
+                    title={`Remove ${item}`}
+                  >
+                    #{item} ×
+                  </button>
+                ))}
+              </div>
+              <div className="mt-3 flex gap-2">
+                <input
+                  className="text-field"
+                  value={newTag}
+                  onChange={(event) => setNewTag(event.target.value)}
+                  placeholder="ui, core, meme"
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") addTag();
+                  }}
+                />
+                <button className="command-button w-12" type="button" onClick={addTag} title="Add tag">
+                  +
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="rounded-lg border border-[#d8c7a3] bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-lg font-bold">Filters</h2>
               <button className="icon-button" type="button" onClick={syncThunderstore} title="Sync Thunderstore">
@@ -1159,88 +1243,9 @@ export default function Home() {
             </select>
           </div>
 
-          {selectedMod && (
-            <div className="order-1 rounded-lg border border-[#d8c7a3] bg-white p-4 shadow-sm">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <ModThumbnail mod={selectedMod} size="lg" />
-                  <button
-                    className="review-title-button force-wrap mt-3 text-left text-2xl font-black leading-7"
-                    type="button"
-                    onClick={() => openReviewModal(selectedMod)}
-                  >
-                    {selectedMod.name}
-                  </button>
-                  <p className="force-wrap mt-1 font-semibold text-[#687376]">by {selectedMod.owner}</p>
-                </div>
-                <a className="icon-button" href={selectedMod.url} target="_blank" rel="noreferrer" title="Open on Thunderstore">
-                  ↗
-                </a>
-              </div>
-              <p className="mt-4 text-sm leading-6 text-[#465255]">{selectedMod.description}</p>
-              <dl className="mt-5 grid grid-cols-2 gap-3 text-sm">
-                <Info label="Version" value={selectedMod.version} />
-                <Info label="Updated" value={formatDate(selectedMod.updated)} />
-                <Info label="Downloads" value={formatNumber(selectedMod.downloads)} />
-                <Info label="Likes" value={selectedMod.rating.toString()} />
-              </dl>
-              <div className="mt-4 rounded bg-[#f3f7f2] p-3 font-mono text-xs text-[#2d4432]">
-                {selectedMod.dependency}
-              </div>
-              <button
-                className="review-summary mt-4 w-full text-left"
-                type="button"
-                onClick={() => openReviewModal(selectedMod)}
-              >
-                <strong>Your review</strong>
-                <span>
-                  {reviews[selectedMod.id]
-                    ? `${reviews[selectedMod.id].rating || "No"} / 5, ${
-                        reviews[selectedMod.id].hasPlayed ? "played" : "not played"
-                      }${
-                        reviews[selectedMod.id].wantsReplay === null
-                          ? ""
-                          : reviews[selectedMod.id].wantsReplay
-                            ? ", replay yes"
-                            : ", replay no"
-                      }`
-                    : "Add rating and notes"}
-                </span>
-              </button>
-
-              <h3 className="mt-5 font-bold">Tags</h3>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {selectedMod.deprecated && <Pill tone="deprecated">Deprecated</Pill>}
-                {(tags[selectedMod.id] ?? []).map((item) => (
-                  <button
-                    key={item}
-                    className="rounded bg-[#ffe9d9] px-2 py-1 text-xs font-bold text-[#9b4d31]"
-                    type="button"
-                    onClick={() => removeTag(selectedMod.id, item)}
-                    title={`Remove ${item}`}
-                  >
-                    #{item} ×
-                  </button>
-                ))}
-              </div>
-              <div className="mt-3 flex gap-2">
-                <input
-                  className="text-field"
-                  value={newTag}
-                  onChange={(event) => setNewTag(event.target.value)}
-                  placeholder="ui, core, meme"
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") addTag();
-                  }}
-                />
-                <button className="command-button w-12" type="button" onClick={addTag} title="Add tag">
-                  +
-                </button>
-              </div>
-            </div>
-          )}
         </aside>
       </section>
+      {children}
     </main>
   );
 }

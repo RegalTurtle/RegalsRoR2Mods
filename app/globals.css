@@ -412,17 +412,35 @@ textarea:focus-visible {
 
 .mod-row {
   display: flex;
-  min-height: 15.5rem;
+  min-height: 5.25rem;
   width: 100%;
-  flex-direction: column;
+  flex-direction: row;
   gap: 1rem;
-  align-items: stretch;
+  align-items: center;
   justify-content: space-between;
   border: 1px solid #d8c7a3;
   border-radius: 0.5rem;
   background: white;
   padding: 1rem;
   box-shadow: 0 1px 2px rgba(23, 33, 38, 0.05);
+}
+
+.mod-row > div:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+}
+
+.mod-row > div:nth-child(2) {
+  flex: 0 1 25%;
+}
+
+.mod-row > div:nth-child(2) > div {
+  margin-top: 0;
+}
+
+.mod-row > div:last-child {
+  flex: 0 0 5.5rem;
 }
 
 .mod-row:hover,
@@ -472,6 +490,16 @@ textarea:focus-visible {
 @media (max-width: 640px) {
   .mod-row {
     min-height: auto;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .mod-row > div:first-child {
+    flex-basis: 100%;
+  }
+
+  .mod-row > div:nth-child(2) {
+    flex: 1 1 auto;
   }
 }
 

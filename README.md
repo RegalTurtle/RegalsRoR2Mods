@@ -1,36 +1,23 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Regal's Risk of Rain 2 Mods
 
-## Getting Started
+A Next.js mod organizer with MongoDB persistence for modpacks, collections, tags, and reviews.
 
-First, run the development server:
+## Development
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+Run npm install, then npm run dev. The app runs at http://localhost:3001.
+Use npm run lint and npm run build to validate changes.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Database
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Set MONGODB_URI in .env.local. Optional settings are MONGODB_DB (default: regals_ror2_mods) and MONGODB_WORKSPACE_ID (default: default).
+Modpacks and collections retain their existing IDs and membership lists in the workspaces collection. No database migration is required for the new routes. IDs remain stable when a name changes and are encoded in URLs.
+The workspace API reports whether a saved workspace exists so an empty database can import the local workspace without discarding it. If the database cannot be read, the app uses local storage and avoids automatically overwriting the database.
+Thunderstore package data is cached in the browser; use the sync control in Filters to load or refresh it on another browser.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Pages
 
-## Learn More
+- / displays the full mod library.
+- /modpacks/[packId] displays one modpack, its notes, and its mods.
+- /collections/[collectionId] displays one collection and its mods.
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The left sidebar links between pages. Mods display as horizontal rows, with search and filter controls on the right. The shared workspace layout preserves state during navigation, including browser Back and Forward. Unknown modpack or collection IDs display a missing collection message rather than the full library.

@@ -5,6 +5,11 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: "https",
+        hostname: "ccdn.thunderstore.io",
+        pathname: "/live/repository/icons/**",
+      },
+      {
+        protocol: "https",
         hostname: "gcdn.thunderstore.io",
         pathname: "/live/repository/icons/**",
       },

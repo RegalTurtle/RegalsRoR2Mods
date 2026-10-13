@@ -109,6 +109,7 @@ export async function GET() {
       );
 
     return Response.json({
+      exists: Boolean(workspace),
       packs: workspace?.packs ?? [],
       groups: workspace?.groups ?? [],
       tags: workspace?.tags ?? {},
