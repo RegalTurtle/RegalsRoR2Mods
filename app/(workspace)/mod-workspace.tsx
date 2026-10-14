@@ -7,6 +7,7 @@ import type { Dispatch, SetStateAction, UIEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import ProfileDownload from "./profile-download";
 import LogoutButton from "./logout-button";
+import ModpackComparison from "./modpack-comparison";
 import { CATALOG_MAX_AGE, readModCatalog, refreshModCatalog } from "@/lib/mod-catalog-cache";
 import { readWorkspaceCache, writeWorkspaceCache } from "@/lib/workspace-cache";
 import ModConfigPanel from "./mod-config-panel";
@@ -210,6 +211,7 @@ export default function ModWorkspace({ children, username, isAdmin }: { children
   const [replayFilter, setReplayFilter] = useState<ReplayFilter>("all");
   const [sortMode, setSortMode] = useState<SortMode>("updated");
   const [selectedModId, setSelectedModId] = useState("");
+  const [showPackComparison, setShowPackComparison] = useState(false);
   const [configStatus, setConfigStatus] = useState<{ packId: string; modIds: string[] }>({ packId: "", modIds: [] });
   const [newPackName, setNewPackName] = useState("");
   const [newGroupName, setNewGroupName] = useState("");
@@ -1046,6 +1048,8 @@ export default function ModWorkspace({ children, username, isAdmin }: { children
         <section ref={centerColumnRef} className="scroll-column mod-column min-w-0" onScroll={handleCenterScroll}>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div><p className="text-xs font-bold uppercase tracking-widest text-[var(--muted)]">{activeCollection.type === "pack" ? "Modpack" : activeCollection.type === "group" ? "Collection" : "Library"}</p><h1 className="text-2xl font-black">{activeCollectionName}</h1><p className="text-sm text-[var(--muted)]">{filteredMods.length} matching mods</p></div>
+            <div className="flex flex-wrap gap-2">
+              {activePack && <button className={`small-button ${showPackComparison ? "small-button-active" : ""}`} type="button" aria-pressed={showPackComparison} onClick={() => setShowPackComparison((current) => !current)}>Compare modpacks</button>}
             <button
               className="small-button"
               type="button"
@@ -1059,6 +1063,7 @@ export default function ModWorkspace({ children, username, isAdmin }: { children
             >
               Clear filters
             </button>
+            </div>
           </div>
 
           <div className="mb-4">
@@ -1126,6 +1131,7 @@ export default function ModWorkspace({ children, username, isAdmin }: { children
         </section>
 
         <aside className="scroll-column right-column flex flex-col gap-4">
+          {showPackComparison && activePack ? <ModpackComparison key={activePack.id} current={activePack} packs={packs} mods={mods} onClose={() => setShowPackComparison(false)} /> : <>
           {selectedMod && (
             <div className="rounded-lg border border-[var(--border)] bg-[var(--panel)] p-4 shadow-sm">
               <div className="flex items-start justify-between gap-3">
@@ -1325,6 +1331,7 @@ export default function ModWorkspace({ children, username, isAdmin }: { children
             </select>
           </div>
 
+          </>}
         </aside>
       </section>
       {children}
