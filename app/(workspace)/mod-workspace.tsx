@@ -1131,7 +1131,16 @@ export default function ModWorkspace({ children, username, isAdmin }: { children
         </section>
 
         <aside className="scroll-column right-column flex flex-col gap-4">
-          {showPackComparison && activePack ? <ModpackComparison key={activePack.id} current={activePack} packs={packs} mods={mods} onClose={() => setShowPackComparison(false)} /> : <>
+          {showPackComparison && activePack ? <ModpackComparison key={activePack.id} current={activePack} packs={packs} mods={mods} onSelectMod={setSelectedModId} onAddMod={async (sourcePackId, modId) => {
+            const response = await fetch("/api/mod-configs", { method: "PATCH", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ sourcePackId, targetPackId: activePack.id, modId }) });
+            const data = await response.json() as { error?: string; configCopied: boolean };
+            if (!response.ok) throw new Error(data.error ?? "Unable to add mod and copy config.");
+            setPacks((current) => current.map((pack) => pack.id === activePack.id ? { ...pack, modIds: Array.from(new Set([...pack.modIds, modId])) } : pack));
+            setSelectedModId(modId);
+            if (data.configCopied) setConfigStatus((current) => ({ packId: activePack.id, modIds: Array.from(new Set([...(current.packId === activePack.id ? current.modIds : Object.keys(activePack.configs ?? {})), modId])) }));
+            return { configCopied: data.configCopied };
+          }} onClose={() => setShowPackComparison(false)} /> : <>
           {selectedMod && (
             <div className="rounded-lg border border-[var(--border)] bg-[var(--panel)] p-4 shadow-sm">
               <div className="flex items-start justify-between gap-3">
