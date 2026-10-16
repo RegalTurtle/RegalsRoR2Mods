@@ -189,6 +189,43 @@ async function fetchLiveMods(): Promise<Mod[]> {
 
 export default function ModWorkspace({ children, username, isAdmin }: { children: React.ReactNode; username: string; isAdmin: boolean }) {
   const storageKey = `${STORAGE_KEY}:${username}`;
+  const checkpointKey = `${storageKey}:mods-read-through`;
+  const [readThrough, setReadThrough] = useState<number | null>(null);
+  const [readTrackingReady, setReadTrackingReady] = useState(false);
+  const [readTrackingError, setReadTrackingError] = useState("");
+  const [unreadOnly, setUnreadOnly] = useState(false);
+  const [checkpointSaving, setCheckpointSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function restore() {
+      try {
+        const response = await fetch("/api/mod-read-checkpoint", { cache: "no-store" });
+        if (!response.ok) throw new Error();
+        let { readThrough: value } = await response.json();
+        // Carry an existing browser checkpoint into the account once.
+        let local: string | null = null;
+        try { local = localStorage.getItem(checkpointKey); } catch { /* Optional migration. */ }
+        const previous = local === null ? null : Number(local);
+        if (previous !== null && Number.isSafeInteger(previous) && previous >= 0 && previous <= Date.now() && previous > (value ?? -1)) {
+          const migrated = await fetch("/api/mod-read-checkpoint", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ readThrough: previous }) });
+          if (!migrated.ok) throw new Error();
+          value = (await migrated.json()).readThrough;
+        }
+        try { localStorage.removeItem(checkpointKey); } catch { /* Optional migration. */ }
+        if (!cancelled) {
+          setReadThrough((current) => value === null ? current : Math.max(current ?? 0, value));
+          setReadTrackingReady(true);
+          setReadTrackingError("");
+        }
+      } catch {
+        if (!cancelled) setReadTrackingError("Could not load your account checkpoint. Refocus this window or reload to retry.");
+      }
+    }
+    void restore();
+    window.addEventListener("focus", restore);
+    return () => { cancelled = true; window.removeEventListener("focus", restore); };
+  }, [checkpointKey]);
   const pathname = usePathname();
   const router = useRouter();
   const segments = pathname.split("/").filter(Boolean);
@@ -462,6 +499,28 @@ export default function ModWorkspace({ children, username, isAdmin }: { children
     [tags],
   );
 
+  const unreadIds = useMemo(() => new Set(mods.filter((mod) => {
+    const updated = Date.parse(mod.updated);
+    return readTrackingReady && Number.isFinite(updated) && (readThrough === null || updated > readThrough);
+  }).map((mod) => mod.id)), [mods, readThrough, readTrackingReady]);
+  const unreadCount = collectionMods.filter((mod) => unreadIds.has(mod.id)).length;
+
+  async function markAllRead() {
+    // A catalog watermark avoids marking unseen updates in a stale cache as read.
+    const latest = mods.reduce((value, mod) => Math.max(value, Date.parse(mod.updated) || 0), 0);
+    if (!latest) return;
+    const checkpoint = Math.max(readThrough ?? 0, latest);
+    setCheckpointSaving(true);
+    setReadTrackingError("");
+    try {
+      const response = await fetch("/api/mod-read-checkpoint", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ readThrough: checkpoint }) });
+      if (!response.ok) throw new Error();
+      const saved = await response.json();
+      setReadThrough((current) => Math.max(current ?? 0, saved.readThrough));
+    } catch { setReadTrackingError("Could not save your account checkpoint. Please try marking all as read again."); }
+    finally { setCheckpointSaving(false); }
+  }
+
   const filteredMods = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     const compactQuery = normalizeSearchText(query);
@@ -490,7 +549,7 @@ export default function ModWorkspace({ children, username, isAdmin }: { children
           (replayFilter === "yes" && review.wantsReplay === true) ||
           (replayFilter === "no" && review.wantsReplay === false) ||
           (replayFilter === "blank" && review.wantsReplay === null);
-        return matchesQuery && matchesCategory && matchesTag && matchesPlayed && matchesReplay;
+        return matchesQuery && matchesCategory && matchesTag && matchesPlayed && matchesReplay && (!unreadOnly || unreadIds.has(mod.id));
       })
       .sort((a, b) => {
         if (sortMode === "name") return a.name.localeCompare(b.name);
@@ -498,7 +557,7 @@ export default function ModWorkspace({ children, username, isAdmin }: { children
         if (sortMode === "updated") return new Date(b.updated).getTime() - new Date(a.updated).getTime();
         return b.downloads - a.downloads;
       });
-  }, [collectionMods, playedFilter, query, replayFilter, reviews, selectedCategories, selectedTags, sortMode, tags]);
+  }, [collectionMods, playedFilter, query, replayFilter, reviews, selectedCategories, selectedTags, sortMode, tags, unreadOnly, unreadIds]);
 
   const activeCollectionName =
     activeCollection.type === "pack"
@@ -507,7 +566,7 @@ export default function ModWorkspace({ children, username, isAdmin }: { children
         ? groups.find((group) => group.id === activeCollection.id)?.name ?? "Selected group"
         : "All Mods";
 
-  const allModsPageScope = `${activeCollection.type}:${activeCollection.id}|${selectedCategories.join(",")}|${selectedTags.join(",")}|${playedFilter}|${replayFilter}|${sortMode}|${query}`;
+  const allModsPageScope = `${activeCollection.type}:${activeCollection.id}|${selectedCategories.join(",")}|${selectedTags.join(",")}|${playedFilter}|${replayFilter}|${sortMode}|${query}|${unreadOnly}|${readThrough}`;
   const allModsVisibleCount =
     allModsPage.scope === allModsPageScope ? allModsPage.count : ALL_MODS_PAGE_SIZE;
   const visibleMods =
@@ -1054,6 +1113,7 @@ export default function ModWorkspace({ children, username, isAdmin }: { children
               className="small-button"
               type="button"
               onClick={() => {
+                setUnreadOnly(false);
                 setQuery("");
                 setSelectedCategories([]);
                 setSelectedTags([]);
@@ -1066,6 +1126,15 @@ export default function ModWorkspace({ children, username, isAdmin }: { children
             </div>
           </div>
 
+          <div className="mb-4 rounded-lg border border-[var(--border)] bg-[var(--panel)] p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <button className={`small-button ${unreadOnly ? "small-button-active" : ""}`} type="button" aria-pressed={unreadOnly} disabled={!readTrackingReady} onClick={() => setUnreadOnly((current) => !current)}>New or updated ({unreadCount})</button>
+              <button className="small-button" type="button" disabled={!readTrackingReady || checkpointSaving || !mods.length} onClick={markAllRead} title="Marks the entire loaded catalog as read, including mods hidden by filters">{checkpointSaving ? "Saving…" : "Mark all mods as read"}</button>
+            </div>
+            <p className="mt-2 text-xs text-[var(--muted)]" role="status">{!readTrackingReady ? "Loading read checkpoint…" : readThrough === null ? "No read checkpoint yet. Mark all as read to start tracking future releases and updates." : `Read through ${new Date(readThrough).toLocaleString()}. Saved to your account across computers.`}</p>
+            {readTrackingError && <p className="mt-2 text-xs" role="alert">{readTrackingError}</p>}
+          </div>
+          {readTrackingReady && unreadOnly && filteredMods.length === 0 && <p className="mb-4 text-sm text-[var(--muted)]">No unread releases or updates match your current filters.</p>}
           <div className="mb-4">
             {activePack && <div className="rounded-lg border border-[var(--border)] bg-[var(--panel)] p-4"><label className="field-label !mt-0" htmlFor="pack-notes">Modpack notes</label><textarea id="pack-notes" className="text-field" value={activePack.notes} onChange={(event) => setPacks((current) => current.map((pack) => pack.id === activePack.id ? { ...pack, notes: event.target.value } : pack))} placeholder="Notes and load order reminders" /></div>}
             {hasLoadedPersistentWorkspace && activeCollection.type !== "all" && !activePack && !activeGroup && <p className="rounded-lg border border-[var(--border)] bg-[var(--panel)] p-5">This {activeCollection.type === "pack" ? "modpack" : "collection"} could not be found. Choose one from the left sidebar.</p>}
@@ -1086,6 +1155,7 @@ export default function ModWorkspace({ children, username, isAdmin }: { children
                     <div className="min-w-0 flex-1 text-left">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="force-wrap text-base font-black">{mod.name}</span><span className="text-xs text-[var(--muted)]">v{mod.version}</span>
+                        {unreadIds.has(mod.id) && <span className="rounded bg-[var(--selected)] px-2 py-1 text-xs font-bold text-[var(--accent-light)]">New or updated</span>}
                         <span className="rounded bg-[var(--selected)] px-2 py-1 text-xs font-bold text-[var(--accent-light)]">
                           {mod.owner}
                         </span>
